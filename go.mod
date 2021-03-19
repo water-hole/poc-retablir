@@ -2,9 +2,10 @@ module github.com/water-hole/poc-retablir
 
 go 1.16
 
-replace github.com/konveyor/transformations => /home/shurley/repos/konveyor/transformations
+replace github.com/konveyor/transformations => github.com/water-hole/transformations v0.0.0-20210311201850-2ac8444c0951
 
 require (
+	github.com/evanphx/json-patch v4.9.0+incompatible
 	github.com/konveyor/transformations v1.0.0
 	github.com/spf13/cobra v1.1.1
 	k8s.io/apimachinery v0.20.4
