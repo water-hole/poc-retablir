@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/spf13/cobra"
 	"github.com/water-hole/poc-retablir/cmd/extract"
+	"github.com/water-hole/poc-retablir/cmd/transform"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"os"
 )
@@ -20,6 +21,7 @@ func main() {
 		Use: "retablir",
 	}
 	root.AddCommand(extract.NewExtractCommand(genericclioptions.IOStreams{In: os.Stdin, Out: os.Stdout, ErrOut: os.Stderr}))
+	root.AddCommand(transform.NewTransformCommand())
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
