@@ -151,14 +151,6 @@ func (o *ExtractorOptions) run() error {
 
 	fmt.Printf("current context is: %s\n", currentContext.AuthInfo)
 
-	//clientConfig, err := config.ClientConfig()
-	//if err != nil {
-	//	fmt.Printf("error getting client config: %#v", err)
-	//	os.Exit(1)
-	//}
-	//
-	//b := resource.NewBuilder(e.configFlags)
-
 	// create export directory if it doesnt exist
 	err = os.MkdirAll(filepath.Join(o.ExportDir, currentContext.Namespace), 0700)
 	switch {
@@ -250,12 +242,6 @@ func writeResources(resources []*groupResource, resourceDir string) []error {
 				continue
 			}
 
-			//_, err = f.Write(o)
-			//if err != nil {
-			//	errs = append(errs, err)
-			//	continue
-			//}
-
 			err = encoder.Close()
 			if err != nil {
 				errs = append(errs, err)
@@ -310,19 +296,6 @@ func writeErrors(errors []*groupResourceError, failuresDir string) []error {
 			errs = append(errs, err)
 			continue
 		}
-
-		//b, err := json.Marshal(&r)
-		//
-		//if err != nil {
-		//	errs = append(errs, err)
-		//	continue
-		//}
-		//
-		//_, err = f.Write(b)
-		//if err != nil {
-		//	errs = append(errs, err)
-		//	continue
-		//}
 	}
 
 	return errs
