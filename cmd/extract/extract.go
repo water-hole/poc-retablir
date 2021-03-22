@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sigs.k8s.io/kustomize/kyaml/yaml"
 	"sort"
 	"strings"
 
@@ -77,6 +78,11 @@ func (s sortableResource) compareValues(i, j int) (string, string) {
 	return s.resources[i].APIGroup, s.resources[j].APIGroup
 }
 
+type groupResourceError struct {
+	APIResource metav1.APIResource `json:",inline"`
+	Err         error              `json:"error"`
+}
+
 func NewExtractCommand(streams genericclioptions.IOStreams) *cobra.Command {
 	o := &ExtractorOptions{
 		configFlags: genericclioptions.NewConfigFlags(true),
@@ -135,7 +141,7 @@ func (o *ExtractorOptions) run() error {
 		os.Exit(1)
 	}
 
-	fmt.Printf("namespace of current context is: %s\n", currentContext.Namespace)
+	fmt.Printf("current context is: %s\n", currentContext.AuthInfo)
 
 	//clientConfig, err := config.ClientConfig()
 	//if err != nil {
@@ -164,10 +170,11 @@ func (o *ExtractorOptions) run() error {
 	errs := []error{}
 	lists, err := discoveryclient.ServerPreferredResources()
 	if err != nil {
-		errs = append(errs, err)
+		fmt.Printf("unauthorized to get discovery service resources: %#v", err)
+		return err
 	}
 
-	resources, errs := resourceToExtract(currentContext, dynamicClient, lists)
+	resources, resourceErrs := resourceToExtract(currentContext, dynamicClient, lists)
 	for _, e := range errs {
 		fmt.Printf("error extracting resource: %#v\n", e)
 	}
@@ -175,10 +182,12 @@ func (o *ExtractorOptions) run() error {
 	fmt.Printf("\nGVK's to be backed up\n\n")
 
 	errs = writeResources(resources)
-
 	for _, e := range errs {
 		fmt.Printf("error writing maniffest to file: %#v\n", e)
 	}
+
+	errs = writeErrors(resourceErrs)
+
 	return errorsutil.NewAggregate(errs)
 }
 
@@ -200,13 +209,21 @@ func writeResources(resources []*groupResource) []error {
 				errs = append(errs, err)
 				continue
 			}
-			o, err := obj.MarshalJSON()
+
+			encoder := yaml.NewEncoder(f)
+			err = encoder.Encode(obj.Object)
 			if err != nil {
 				errs = append(errs, err)
 				continue
 			}
 
-			_, err = f.Write(o)
+			//_, err = f.Write(o)
+			//if err != nil {
+			//	errs = append(errs, err)
+			//	continue
+			//}
+
+			err = encoder.Close()
 			if err != nil {
 				errs = append(errs, err)
 				continue
@@ -224,17 +241,71 @@ func writeResources(resources []*groupResource) []error {
 	return errs
 }
 
+func writeErrors(errors []*groupResourceError) []error {
+	errs := []error{}
+	for _, r := range errors {
+		fmt.Printf("%s\n", r.APIResource.Name)
+
+		kind := r.APIResource.Kind
+
+		if kind == "" {
+			continue
+		}
+
+		path := filepath.Join("./", "failures", r.APIResource.Name+".yaml")
+		f, err := os.Create(path)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+
+		encoder := yaml.NewEncoder(f)
+		err = encoder.Encode(&r)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+
+		err = encoder.Close()
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+
+		err = f.Close()
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+
+		//b, err := json.Marshal(&r)
+		//
+		//if err != nil {
+		//	errs = append(errs, err)
+		//	continue
+		//}
+		//
+		//_, err = f.Write(b)
+		//if err != nil {
+		//	errs = append(errs, err)
+		//	continue
+		//}
+	}
+
+	return errs
+}
+
 func getFilePath(obj unstructured.Unstructured) string {
 	namespace := obj.GetNamespace()
 	if namespace == "" {
 		namespace = "clusterscoped"
 	}
-	return strings.Join([]string{obj.GetKind(), namespace, obj.GetName()}, "_") + ".json"
+	return strings.Join([]string{obj.GetKind(), namespace, obj.GetName()}, "_") + ".yaml"
 }
 
-func resourceToExtract(currentContext *api.Context, dynamicClient dynamic.Interface, lists []*metav1.APIResourceList) ([]*groupResource, []error) {
+func resourceToExtract(currentContext *api.Context, dynamicClient dynamic.Interface, lists []*metav1.APIResourceList) ([]*groupResource, []*groupResourceError) {
 	resources := []*groupResource{}
-	var errors []error
+	errors := []*groupResourceError{}
 
 	for _, list := range lists {
 		if len(list.APIResources) == 0 {
@@ -256,6 +327,11 @@ func resourceToExtract(currentContext *api.Context, dynamicClient dynamic.Interf
 
 			fmt.Printf("processing resource: %s.%s\n", gv.String(), resource.Kind)
 
+			if !strings.Contains(strings.Join(resource.Verbs, ", "), "create") {
+				fmt.Printf("resource: : %s.%s does not support a create verb, skipping\n", gv.String(), resource.Kind)
+				continue
+			}
+
 			g := &groupResource{
 				APIGroup:        gv.Group,
 				APIVersion:      gv.Version,
@@ -274,8 +350,11 @@ func resourceToExtract(currentContext *api.Context, dynamicClient dynamic.Interf
 					fmt.Printf("could not find the resource, most likely this is a virtual resource")
 				default:
 					fmt.Printf("error listing objects: %#v", err)
-					errors = append(errors, err)
 				}
+				errors = append(errors, &groupResourceError{
+					APIResource: resource,
+					Err:         err,
+				})
 				continue
 			}
 
