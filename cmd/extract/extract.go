@@ -161,21 +161,27 @@ func (o *ExtractorOptions) run() error {
 
 	// create export directory if it doesnt exist
 	err = os.MkdirAll(filepath.Join(o.ExportDir, currentContext.Namespace), 0700)
-	if err != nil {
+	switch {
+	case os.IsExist(err):
+	case err != nil:
 		fmt.Printf("error creating the export directory: %#v", err)
 		os.Exit(1)
 	}
 
 	// create export directory if it doesnt exist
 	err = os.Mkdir(filepath.Join(o.ExportDir, currentContext.Namespace, "resources"), 0700)
-	if err != nil {
+	switch {
+	case os.IsExist(err):
+	case err != nil:
 		fmt.Printf("error creating the resources directory: %#v", err)
 		os.Exit(1)
 	}
 
 	// create export directory if it doesnt exist
 	err = os.Mkdir(filepath.Join(o.ExportDir, currentContext.Namespace, "failures"), 0700)
-	if err != nil {
+	switch {
+	case os.IsExist(err):
+	case err != nil:
 		fmt.Printf("error creating the failures directory: %#v", err)
 		os.Exit(1)
 	}
@@ -344,6 +350,11 @@ func resourceToExtract(currentContext *api.Context, dynamicClient dynamic.Interf
 		}
 		for _, resource := range list.APIResources {
 			if len(resource.Verbs) == 0 {
+				continue
+			}
+
+			if resource.Kind == "Event" {
+				fmt.Printf("resource: %s.%s, skipping\n", gv.String(), resource.Kind)
 				continue
 			}
 
