@@ -23,6 +23,7 @@ import (
 type ExtractorOptions struct {
 	configFlags *genericclioptions.ConfigFlags
 
+	ExportDir string
 	genericclioptions.IOStreams
 }
 
@@ -106,7 +107,14 @@ func NewExtractCommand(streams genericclioptions.IOStreams) *cobra.Command {
 			return nil
 		},
 	}
+
+	addFlagsForOptions(o, cmd)
+
 	return cmd
+}
+
+func addFlagsForOptions(o *ExtractorOptions, cmd *cobra.Command) {
+	cmd.Flags().StringVar(&o.ExportDir, "export-dir", "export", "The path where files are to be exported")
 }
 
 func (o *ExtractorOptions) run() error {
@@ -151,6 +159,27 @@ func (o *ExtractorOptions) run() error {
 	//
 	//b := resource.NewBuilder(e.configFlags)
 
+	// create export directory if it doesnt exist
+	err = os.MkdirAll(filepath.Join(o.ExportDir, currentContext.Namespace), 0700)
+	if err != nil {
+		fmt.Printf("error creating the export directory: %#v", err)
+		os.Exit(1)
+	}
+
+	// create export directory if it doesnt exist
+	err = os.Mkdir(filepath.Join(o.ExportDir, currentContext.Namespace, "resources"), 0700)
+	if err != nil {
+		fmt.Printf("error creating the resources directory: %#v", err)
+		os.Exit(1)
+	}
+
+	// create export directory if it doesnt exist
+	err = os.Mkdir(filepath.Join(o.ExportDir, currentContext.Namespace, "failures"), 0700)
+	if err != nil {
+		fmt.Printf("error creating the failures directory: %#v", err)
+		os.Exit(1)
+	}
+
 	discoveryclient, err := o.configFlags.ToDiscoveryClient()
 	if err != nil {
 		fmt.Printf("cannot create discovery client: %#v", err)
@@ -179,19 +208,17 @@ func (o *ExtractorOptions) run() error {
 		fmt.Printf("error extracting resource: %#v\n", e)
 	}
 
-	fmt.Printf("\nGVK's to be backed up\n\n")
-
-	errs = writeResources(resources)
+	errs = writeResources(resources, filepath.Join(o.ExportDir, currentContext.Namespace, "resources"))
 	for _, e := range errs {
 		fmt.Printf("error writing maniffest to file: %#v\n", e)
 	}
 
-	errs = writeErrors(resourceErrs)
+	errs = writeErrors(resourceErrs, filepath.Join(o.ExportDir, currentContext.Namespace, "failures"))
 
 	return errorsutil.NewAggregate(errs)
 }
 
-func writeResources(resources []*groupResource) []error {
+func writeResources(resources []*groupResource, resourceDir string) []error {
 	errs := []error{}
 	for _, r := range resources {
 		fmt.Printf("%s %s\n", r.APIResource.Name, r.APIGroupVersion)
@@ -203,7 +230,7 @@ func writeResources(resources []*groupResource) []error {
 		}
 
 		for _, obj := range r.objects.Items {
-			path := filepath.Join("./", "output", getFilePath(obj))
+			path := filepath.Join(resourceDir, getFilePath(obj))
 			f, err := os.Create(path)
 			if err != nil {
 				errs = append(errs, err)
@@ -241,7 +268,7 @@ func writeResources(resources []*groupResource) []error {
 	return errs
 }
 
-func writeErrors(errors []*groupResourceError) []error {
+func writeErrors(errors []*groupResourceError, failuresDir string) []error {
 	errs := []error{}
 	for _, r := range errors {
 		fmt.Printf("%s\n", r.APIResource.Name)
@@ -252,7 +279,7 @@ func writeErrors(errors []*groupResourceError) []error {
 			continue
 		}
 
-		path := filepath.Join("./", "failures", r.APIResource.Name+".yaml")
+		path := filepath.Join(failuresDir, r.APIResource.Name+".yaml")
 		f, err := os.Create(path)
 		if err != nil {
 			errs = append(errs, err)
