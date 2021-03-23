@@ -1,4 +1,4 @@
-package extract
+package export
 
 import (
 	"context"
@@ -20,24 +20,24 @@ import (
 	"k8s.io/client-go/tools/clientcmd/api"
 )
 
-type ExtractorOptions struct {
+type ExportOptions struct {
 	configFlags *genericclioptions.ConfigFlags
 
 	ExportDir string
 	genericclioptions.IOStreams
 }
 
-func (o *ExtractorOptions) Complete(c *cobra.Command, args []string) error {
+func (o *ExportOptions) Complete(c *cobra.Command, args []string) error {
 	// TODO: @alpatel
 	return nil
 }
 
-func (o *ExtractorOptions) Validate() error {
+func (o *ExportOptions) Validate() error {
 	// TODO: @alpatel
 	return nil
 }
 
-func (o *ExtractorOptions) Run() error {
+func (o *ExportOptions) Run() error {
 	return o.run()
 }
 
@@ -84,15 +84,15 @@ type groupResourceError struct {
 	Err         error              `json:"error"`
 }
 
-func NewExtractCommand(streams genericclioptions.IOStreams) *cobra.Command {
-	o := &ExtractorOptions{
+func NewExportCommand(streams genericclioptions.IOStreams) *cobra.Command {
+	o := &ExportOptions{
 		configFlags: genericclioptions.NewConfigFlags(true),
 
 		IOStreams: streams,
 	}
 	cmd := &cobra.Command{
-		Use:   "extract",
-		Short: "Extract the namespace resources in an output directory",
+		Use:   "export",
+		Short: "Export the namespace resources in an output directory",
 		RunE: func(c *cobra.Command, args []string) error {
 			if err := o.Complete(c, args); err != nil {
 				return err
@@ -113,11 +113,11 @@ func NewExtractCommand(streams genericclioptions.IOStreams) *cobra.Command {
 	return cmd
 }
 
-func addFlagsForOptions(o *ExtractorOptions, cmd *cobra.Command) {
+func addFlagsForOptions(o *ExportOptions, cmd *cobra.Command) {
 	cmd.Flags().StringVar(&o.ExportDir, "export-dir", "export", "The path where files are to be exported")
 }
 
-func (o *ExtractorOptions) run() error {
+func (o *ExportOptions) run() error {
 	config := o.configFlags.ToRawKubeConfigLoader()
 	rawConfig, err := config.RawConfig()
 	if err != nil {
@@ -195,7 +195,7 @@ func (o *ExtractorOptions) run() error {
 	dynamicClient := dynamic.NewForConfigOrDie(restConfig)
 
 	errs := []error{}
-	lists, err := discoveryclient.ServerPreferredResources()
+	lists, err := discoveryclient.ServerPreferredNamespacedResources()
 	if err != nil {
 		fmt.Printf("unauthorized to get discovery service resources: %#v", err)
 		return err
@@ -203,7 +203,7 @@ func (o *ExtractorOptions) run() error {
 
 	resources, resourceErrs := resourceToExtract(currentContext, dynamicClient, lists)
 	for _, e := range errs {
-		fmt.Printf("error extracting resource: %#v\n", e)
+		fmt.Printf("error exporting resource: %#v\n", e)
 	}
 
 	errs = writeResources(resources, filepath.Join(o.ExportDir, currentContext.Namespace, "resources"))
