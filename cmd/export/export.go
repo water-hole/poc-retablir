@@ -1,19 +1,13 @@
 package export
 
+// TODO: alpatel this will eventually make it into a library, I think
+
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sigs.k8s.io/kustomize/kyaml/yaml"
-	"sort"
-	"strings"
 
 	"github.com/spf13/cobra"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	errorsutil "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/dynamic"
@@ -25,6 +19,7 @@ type ExportOptions struct {
 
 	ExportDir string
 	Context   string
+	Namespace string
 	genericclioptions.IOStreams
 }
 
@@ -40,49 +35,6 @@ func (o *ExportOptions) Validate() error {
 
 func (o *ExportOptions) Run() error {
 	return o.run()
-}
-
-// groupResource contains the APIGroup and APIResource
-type groupResource struct {
-	APIGroup        string
-	APIVersion      string
-	APIGroupVersion string
-	APIResource     metav1.APIResource
-	objects         *unstructured.UnstructuredList
-}
-
-type sortableResource struct {
-	resources []*groupResource
-	sortBy    string
-}
-
-func (s sortableResource) Len() int { return len(s.resources) }
-func (s sortableResource) Swap(i, j int) {
-	s.resources[i], s.resources[j] = s.resources[j], s.resources[i]
-}
-func (s sortableResource) Less(i, j int) bool {
-	ret := strings.Compare(s.compareValues(i, j))
-	if ret > 0 {
-		return false
-	} else if ret == 0 {
-		return strings.Compare(s.resources[i].APIResource.Name, s.resources[j].APIResource.Name) < 0
-	}
-	return true
-}
-
-func (s sortableResource) compareValues(i, j int) (string, string) {
-	switch s.sortBy {
-	case "name":
-		return s.resources[i].APIResource.Name, s.resources[j].APIResource.Name
-	case "kind":
-		return s.resources[i].APIResource.Kind, s.resources[j].APIResource.Kind
-	}
-	return s.resources[i].APIGroup, s.resources[j].APIGroup
-}
-
-type groupResourceError struct {
-	APIResource metav1.APIResource `json:",inline"`
-	Err         error              `json:"error"`
 }
 
 func NewExportCommand(streams genericclioptions.IOStreams) *cobra.Command {
@@ -117,6 +69,7 @@ func NewExportCommand(streams genericclioptions.IOStreams) *cobra.Command {
 func addFlagsForOptions(o *ExportOptions, cmd *cobra.Command) {
 	cmd.Flags().StringVar(&o.ExportDir, "export-dir", "export", "The path where files are to be exported")
 	cmd.Flags().StringVar(&o.Context, "context", "", "The kube context, if empty it will use the current context")
+	cmd.Flags().StringVar(&o.Namespace, "namespace", "", "The kube namespace to export. If --context is set it will try to get the namespace from the context and that will take precedence")
 }
 
 func (o *ExportOptions) run() error {
@@ -136,10 +89,12 @@ func (o *ExportOptions) run() error {
 	}
 
 	var currentContext *api.Context
+	contextName := ""
 
 	for name, ctx := range rawConfig.Contexts {
 		if name == o.Context {
 			currentContext = ctx
+			contextName = name
 		}
 	}
 
@@ -148,15 +103,19 @@ func (o *ExportOptions) run() error {
 		os.Exit(1)
 	}
 
-	if len(currentContext.Namespace) == 0 {
-		fmt.Printf("currentContext Namespace is empty ")
+	if len(currentContext.Namespace) > 0 {
+		o.Namespace = currentContext.Namespace
+	}
+
+	if o.Namespace == "" {
+		fmt.Printf("current context `%s` does not have a namespace selected and `--namespace` flag is empty, exiting", contextName)
 		os.Exit(1)
 	}
 
 	fmt.Printf("current context is: %s\n", currentContext.AuthInfo)
 
 	// create export directory if it doesnt exist
-	err = os.MkdirAll(filepath.Join(o.ExportDir, currentContext.Namespace), 0700)
+	err = os.MkdirAll(filepath.Join(o.ExportDir, o.Namespace), 0700)
 	switch {
 	case os.IsExist(err):
 	case err != nil:
@@ -165,7 +124,7 @@ func (o *ExportOptions) run() error {
 	}
 
 	// create export directory if it doesnt exist
-	err = os.Mkdir(filepath.Join(o.ExportDir, currentContext.Namespace, "resources"), 0700)
+	err = os.Mkdir(filepath.Join(o.ExportDir, o.Namespace, "resources"), 0700)
 	switch {
 	case os.IsExist(err):
 	case err != nil:
@@ -174,7 +133,7 @@ func (o *ExportOptions) run() error {
 	}
 
 	// create export directory if it doesnt exist
-	err = os.Mkdir(filepath.Join(o.ExportDir, currentContext.Namespace, "failures"), 0700)
+	err = os.Mkdir(filepath.Join(o.ExportDir, o.Namespace, "failures"), 0700)
 	switch {
 	case os.IsExist(err):
 	case err != nil:
@@ -205,198 +164,17 @@ func (o *ExportOptions) run() error {
 		return err
 	}
 
-	resources, resourceErrs := resourceToExtract(currentContext, dynamicClient, lists)
+	resources, resourceErrs := resourceToExtract(o.Namespace, dynamicClient, lists)
 	for _, e := range errs {
 		fmt.Printf("error exporting resource: %#v\n", e)
 	}
 
-	errs = writeResources(resources, filepath.Join(o.ExportDir, currentContext.Namespace, "resources"))
+	errs = writeResources(resources, filepath.Join(o.ExportDir, o.Namespace, "resources"))
 	for _, e := range errs {
 		fmt.Printf("error writing maniffest to file: %#v\n", e)
 	}
 
-	errs = writeErrors(resourceErrs, filepath.Join(o.ExportDir, currentContext.Namespace, "failures"))
+	errs = writeErrors(resourceErrs, filepath.Join(o.ExportDir, o.Namespace, "failures"))
 
 	return errorsutil.NewAggregate(errs)
-}
-
-func writeResources(resources []*groupResource, resourceDir string) []error {
-	errs := []error{}
-	for _, r := range resources {
-		fmt.Printf("%s %s\n", r.APIResource.Name, r.APIGroupVersion)
-
-		kind := r.APIResource.Kind
-
-		if kind == "" {
-			continue
-		}
-
-		for _, obj := range r.objects.Items {
-			path := filepath.Join(resourceDir, getFilePath(obj))
-			f, err := os.Create(path)
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
-
-			encoder := yaml.NewEncoder(f)
-			err = encoder.Encode(obj.Object)
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
-
-			err = encoder.Close()
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
-
-			err = f.Close()
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
-
-		}
-	}
-
-	return errs
-}
-
-func writeErrors(errors []*groupResourceError, failuresDir string) []error {
-	errs := []error{}
-	for _, r := range errors {
-		fmt.Printf("%s\n", r.APIResource.Name)
-
-		kind := r.APIResource.Kind
-
-		if kind == "" {
-			continue
-		}
-
-		path := filepath.Join(failuresDir, r.APIResource.Name+".yaml")
-		f, err := os.Create(path)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-
-		encoder := yaml.NewEncoder(f)
-		err = encoder.Encode(&r)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-
-		err = encoder.Close()
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-
-		err = f.Close()
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-	}
-
-	return errs
-}
-
-func getFilePath(obj unstructured.Unstructured) string {
-	namespace := obj.GetNamespace()
-	if namespace == "" {
-		namespace = "clusterscoped"
-	}
-	return strings.Join([]string{obj.GetKind(), namespace, obj.GetName()}, "_") + ".yaml"
-}
-
-func resourceToExtract(currentContext *api.Context, dynamicClient dynamic.Interface, lists []*metav1.APIResourceList) ([]*groupResource, []*groupResourceError) {
-	resources := []*groupResource{}
-	errors := []*groupResourceError{}
-
-	for _, list := range lists {
-		if len(list.APIResources) == 0 {
-			continue
-		}
-		gv, err := schema.ParseGroupVersion(list.GroupVersion)
-		if err != nil {
-			continue
-		}
-		for _, resource := range list.APIResources {
-			if len(resource.Verbs) == 0 {
-				continue
-			}
-
-			if resource.Kind == "Event" {
-				fmt.Printf("resource: %s.%s, skipping\n", gv.String(), resource.Kind)
-				continue
-			}
-
-			if !resource.Namespaced {
-				fmt.Printf("resource: %s.%s is clusterscoped, skipping\n", gv.String(), resource.Kind)
-				continue
-			}
-
-			fmt.Printf("processing resource: %s.%s\n", gv.String(), resource.Kind)
-
-			if !strings.Contains(strings.Join(resource.Verbs, ", "), "create") {
-				fmt.Printf("resource: : %s.%s does not support a create verb, skipping\n", gv.String(), resource.Kind)
-				continue
-			}
-
-			g := &groupResource{
-				APIGroup:        gv.Group,
-				APIVersion:      gv.Version,
-				APIGroupVersion: gv.String(),
-				APIResource:     resource,
-			}
-
-			objs, err := getObjects(g, currentContext.Namespace, dynamicClient)
-			if err != nil {
-				switch {
-				case apierrors.IsForbidden(err):
-					fmt.Printf("cannot list obj in namespace")
-				case apierrors.IsMethodNotSupported(err):
-					fmt.Printf("list method not supported on the gvr")
-				case apierrors.IsNotFound(err):
-					fmt.Printf("could not find the resource, most likely this is a virtual resource")
-				default:
-					fmt.Printf("error listing objects: %#v", err)
-				}
-				errors = append(errors, &groupResourceError{
-					APIResource: resource,
-					Err:         err,
-				})
-				continue
-			}
-
-			if len(objs.Items) > 0 {
-				g.objects = objs
-				fmt.Printf("more than one object found\n")
-				resources = append(resources, g)
-				continue
-			}
-
-			fmt.Printf("0 objects found, skipping\n")
-		}
-	}
-
-	sort.Stable(sortableResource{resources, "kind"})
-	return resources, errors
-}
-
-func getObjects(g *groupResource, namespace string, d dynamic.Interface) (*unstructured.UnstructuredList, error) {
-	c := d.Resource(schema.GroupVersionResource{
-		Group:    g.APIGroup,
-		Version:  g.APIVersion,
-		Resource: g.APIResource.Name,
-	})
-	if g.APIResource.Namespaced {
-		return c.Namespace(namespace).List(context.Background(), metav1.ListOptions{})
-	}
-	return &unstructured.UnstructuredList{}, nil
-	//return c.List(context.Background(), metav1.ListOptions{})
 }
