@@ -24,6 +24,7 @@ type ExportOptions struct {
 	configFlags *genericclioptions.ConfigFlags
 
 	ExportDir string
+	Context   string
 	genericclioptions.IOStreams
 }
 
@@ -115,6 +116,7 @@ func NewExportCommand(streams genericclioptions.IOStreams) *cobra.Command {
 
 func addFlagsForOptions(o *ExportOptions, cmd *cobra.Command) {
 	cmd.Flags().StringVar(&o.ExportDir, "export-dir", "export", "The path where files are to be exported")
+	cmd.Flags().StringVar(&o.Context, "context", "", "The kube context, if empty it will use the current context")
 }
 
 func (o *ExportOptions) run() error {
@@ -124,17 +126,19 @@ func (o *ExportOptions) run() error {
 		fmt.Printf("error in generating raw config")
 		os.Exit(1)
 	}
-	kubecontext := rawConfig.CurrentContext
+	if o.Context == "" {
+		o.Context = rawConfig.CurrentContext
+	}
 
-	if kubecontext == "" {
-		fmt.Printf("current kubecontext is empty")
+	if o.Context == "" {
+		fmt.Printf("current kubecontext is empty and not kubecontext is specified")
 		os.Exit(1)
 	}
 
 	var currentContext *api.Context
 
 	for name, ctx := range rawConfig.Contexts {
-		if name == kubecontext {
+		if name == o.Context {
 			currentContext = ctx
 		}
 	}
