@@ -68,8 +68,8 @@ func NewExportCommand(streams genericclioptions.IOStreams) *cobra.Command {
 
 func addFlagsForOptions(o *ExportOptions, cmd *cobra.Command) {
 	cmd.Flags().StringVar(&o.ExportDir, "export-dir", "export", "The path where files are to be exported")
-	cmd.Flags().StringVar(&o.Context, "context", "", "The kube context, if empty it will use the current context")
-	cmd.Flags().StringVar(&o.Namespace, "namespace", "", "The kube namespace to export. If --context is set it will try to get the namespace from the context and that will take precedence")
+	cmd.Flags().StringVar(&o.Context, "context", "", "The kube context, if empty it will use the current context. If --namespace is set it will take precedence")
+	cmd.Flags().StringVar(&o.Namespace, "namespace", "", "The kube namespace to export.")
 }
 
 func (o *ExportOptions) run() error {
@@ -99,17 +99,17 @@ func (o *ExportOptions) run() error {
 	}
 
 	if currentContext == nil {
-		fmt.Printf("currentContext is nil")
+		fmt.Printf("currentContext is nil\n")
 		os.Exit(1)
-	}
-
-	if len(currentContext.Namespace) > 0 {
-		o.Namespace = currentContext.Namespace
 	}
 
 	if o.Namespace == "" {
-		fmt.Printf("current context `%s` does not have a namespace selected and `--namespace` flag is empty, exiting", contextName)
-		os.Exit(1)
+		fmt.Printf("--namespace is empty, defaulting to current context namespace\n")
+		if currentContext.Namespace == "" {
+			fmt.Printf("current context %s namespace is empty, exiting\n", contextName)
+			os.Exit(1)
+		}
+		o.Namespace = currentContext.Namespace
 	}
 
 	fmt.Printf("current context is: %s\n", currentContext.AuthInfo)
