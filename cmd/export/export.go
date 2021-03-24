@@ -115,16 +115,7 @@ func (o *ExportOptions) run() error {
 	fmt.Printf("current context is: %s\n", currentContext.AuthInfo)
 
 	// create export directory if it doesnt exist
-	err = os.MkdirAll(filepath.Join(o.ExportDir, o.Namespace), 0700)
-	switch {
-	case os.IsExist(err):
-	case err != nil:
-		fmt.Printf("error creating the export directory: %#v", err)
-		os.Exit(1)
-	}
-
-	// create export directory if it doesnt exist
-	err = os.Mkdir(filepath.Join(o.ExportDir, o.Namespace, "resources"), 0700)
+	err = os.MkdirAll(filepath.Join(o.ExportDir, "resources", o.Namespace), 0700)
 	switch {
 	case os.IsExist(err):
 	case err != nil:
@@ -133,7 +124,7 @@ func (o *ExportOptions) run() error {
 	}
 
 	// create export directory if it doesnt exist
-	err = os.Mkdir(filepath.Join(o.ExportDir, o.Namespace, "failures"), 0700)
+	err = os.MkdirAll(filepath.Join(o.ExportDir, "failures", o.Namespace), 0700)
 	switch {
 	case os.IsExist(err):
 	case err != nil:
@@ -169,12 +160,12 @@ func (o *ExportOptions) run() error {
 		fmt.Printf("error exporting resource: %#v\n", e)
 	}
 
-	errs = writeResources(resources, filepath.Join(o.ExportDir, o.Namespace, "resources"))
+	errs = writeResources(resources, filepath.Join(o.ExportDir, "resources", o.Namespace))
 	for _, e := range errs {
 		fmt.Printf("error writing maniffest to file: %#v\n", e)
 	}
 
-	errs = writeErrors(resourceErrs, filepath.Join(o.ExportDir, o.Namespace, "failures"))
+	errs = writeErrors(resourceErrs, filepath.Join(o.ExportDir, "failures", o.Namespace))
 
 	return errorsutil.NewAggregate(errs)
 }
