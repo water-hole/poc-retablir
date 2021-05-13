@@ -2,7 +2,7 @@ module github.com/water-hole/poc-retablir
 
 go 1.16
 
-replace github.com/konveyor/transformations => github.com/water-hole/transformations v0.0.0-20210407094015-987ef7e61277
+replace github.com/konveyor/transformations => github.com/water-hole/transformations v0.0.0-20210513130539-c23f9f7ca8cf
 
 require (
 	github.com/evanphx/json-patch v4.9.0+incompatible
