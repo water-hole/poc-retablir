@@ -96,7 +96,7 @@ func (o *ApplyOptions) run() error {
 		doc, err := file.Unstructured.MarshalJSON()
 		//Determine if annoations need to be added
 		// ADD CHECK FOR IF NEW ANNOTATIONS
-		if len(file.Unstructured.GetAnnotations()) < 1 {
+		if len(file.Unstructured.GetAnnotations()) == 0 {
 			//Apply patches to doc to add annoations.
 			patches := []byte(`[
 				{"op": "add", "path": "/metadata/annotations", "value": {}}
