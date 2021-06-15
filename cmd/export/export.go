@@ -20,6 +20,8 @@ type ExportOptions struct {
 	ExportDir string
 	Context   string
 	Namespace string
+	QPS       float32
+	Burst     int
 	genericclioptions.IOStreams
 }
 
@@ -70,6 +72,8 @@ func addFlagsForOptions(o *ExportOptions, cmd *cobra.Command) {
 	cmd.Flags().StringVar(&o.ExportDir, "export-dir", "export", "The path where files are to be exported")
 	cmd.Flags().StringVar(&o.Context, "context", "", "The kube context, if empty it will use the current context. If --namespace is set it will take precedence")
 	cmd.Flags().StringVar(&o.Namespace, "namespace", "", "The kube namespace to export.")
+	cmd.Flags().Float32VarP(&o.QPS, "qps", "q", 100, "Query Per Second Rate.")
+	cmd.Flags().IntVarP(&o.Burst, "burst", "b", 1000, "API Burst Rate.")
 }
 
 func (o *ExportOptions) run() error {
@@ -142,6 +146,9 @@ func (o *ExportOptions) run() error {
 	discoveryclient.Invalidate()
 
 	restConfig, err := o.configFlags.ToRESTConfig()
+	restConfig.Burst = o.Burst
+	restConfig.QPS = o.QPS
+
 	if err != nil {
 		fmt.Printf("cannot create rest config: %#v", err)
 	}
